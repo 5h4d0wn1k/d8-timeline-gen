@@ -1,0 +1,6 @@
+[
+  {"timestamp": "2024-01-15T08:00:03Z", "source": "file", "type": "create", "description": "New binary /tmp/beacon written", "path": "/tmp/beacon"},
+  {"timestamp": "2024-01-15T08:00:04Z", "source": "file", "type": "create", "description": "Downloaded archive /tmp/archive.zip", "path": "/tmp/archive.zip"},
+  {"timestamp": "2024-01-15T09:05:30Z", "source": "file", "type": "modify", "description": "Modified /etc/crontab", "path": "/etc/crontab"},
+  {"timestamp": "2024-01-15T09:06:00Z", "source": "file", "type": "create", "description": "Created /var/log/exfil.log", "path": "/var/log/exfil.log"}
+]

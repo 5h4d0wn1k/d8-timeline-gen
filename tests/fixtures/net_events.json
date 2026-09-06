@@ -1,0 +1,6 @@
+[
+  {"timestamp": "2024-01-15T08:00:00Z", "source": "network", "type": "dns_query", "description": "DNS query for example.com", "domain": "example.com"},
+  {"timestamp": "2024-01-15T08:00:05Z", "source": "network", "type": "conn", "description": "TCP connect to 198.51.100.80:443", "dst_ip": "198.51.100.80"},
+  {"timestamp": "2024-01-15T08:00:06Z", "source": "network", "type": "conn", "description": "Malware beacon to malware-cnc.evil.com", "dst_ip": "198.51.100.80"},
+  {"timestamp": "2024-01-15T09:05:00Z", "source": "network", "type": "conn", "description": "Outbound HTTPS connect", "dst_ip": "203.0.113.7"}
+]

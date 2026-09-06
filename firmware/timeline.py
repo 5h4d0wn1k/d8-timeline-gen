@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """D8 - Timeline Generator
 
-Multi-source timeline correlation, event sorting, visualization.
+Multi-source timeline correlation, wall-clock normalization, CSV/JSONL output.
 Uses json, datetime, os only.
 """
 
@@ -11,18 +11,41 @@ import os
 import sys
 
 
+def parse_ts(ts):
+    """Normalize a timestamp string to an aware UTC datetime where possible."""
+    if isinstance(ts, (datetime.datetime,)):
+        return ts
+    if isinstance(ts, str):
+        ts = ts.strip()
+        try:
+            return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return datetime.datetime.strptime(ts, fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def to_utc(dt):
+    """Ensure the timestamp is UTC-aware for reliable cross-source ordering."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc)
+
+
 class Timeline:
     def __init__(self):
         self.events = []
 
     def add_event(self, ts, source, event_type, description="", data=None):
-        if isinstance(ts, str):
-            try:
-                ts = datetime.datetime.fromisoformat(ts)
-            except Exception:
-                ts = None
+        ts = parse_ts(ts)
         self.events.append({
-            "timestamp": ts,
+            "timestamp": to_utc(ts),
             "source": source,
             "type": event_type,
             "description": description,
@@ -44,21 +67,17 @@ class Timeline:
             )
 
     def sort(self):
-        self.events.sort(key=lambda e: e["timestamp"] or datetime.datetime.min)
+        self.events.sort(key=lambda e: (e["timestamp"] is not None, e["timestamp"] or datetime.datetime.min))
 
     def filter_source(self, source=None, etype=None):
-        out = []
-        for e in self.events:
-            if source and e["source"] != source:
-                continue
-            if etype and e["type"] != etype:
-                continue
-            out.append(e)
-        return out
+        return [e for e in self.events
+                if (not source or e["source"] == source)
+                and (not etype or e["type"] == etype)]
 
     def by_time_range(self, start, end):
-        return [e for e in self.events
-                if e["timestamp"] and start <= e["timestamp"] <= end]
+        start = to_utc(parse_ts(start))
+        end = to_utc(parse_ts(end))
+        return [e for e in self.events if e["timestamp"] and start <= e["timestamp"] <= end]
 
     def summarize(self):
         stats = {}
@@ -66,53 +85,37 @@ class Timeline:
             stats.setdefault(e["source"], set()).add(e["type"])
         return {k: sorted(v) for k, v in stats.items()}
 
-    def timeline_txt(self, width=34):
-        """ASCII visualization: time-sorted events across sources."""
+    def timeline_txt(self):
         self.sort()
-        sources = sorted({e["source"] for e in self.events})
-        if not sources:
-            return "No events"
-        lines = []
-        lines.append("Timeline (")
-        for s in sources:
-            lines[0] += " [%s]" % s
-        lines[0] += " )"
+        lines = ["Timeline (%d events)" % len(self.events)]
         for e in self.events:
-            ts = e["timestamp"].isoformat(sep=" ") if e["timestamp"] else "?" * 19
-            ctx = ts
-            lines.append(ctx + "  " + (e["description"] or e["type"]))
-        return "\n".join(lines)
-
-    def render_bars(self):
-        """Visual bar chart of events per source over time."""
-        self.sort()
-        sources = sorted({e["source"] for e in self.events})
-        if not sources:
-            return "No events"
-        lines = []
-        lines.append("Event density per source:")
-        lines.append("  " + " ".join("%-10s" % s for s in sources))
-        lines.append("  " + " ".join("%-10s" % ("-------") for _ in sources))
-        lines.append("")
-        for e in self.events:
-            ts = e["timestamp"].isoformat() if e["timestamp"] else "?"
-            parts = []
-            for s in sources:
-                mark = "x" if e["source"] == s else "."
-                parts.append("%-10s" % mark)
-            lines.append(ts + "  " + " ".join(parts))
+            ts = e["timestamp"].isoformat(sep=" ") if e["timestamp"] else "?" * 26
+            lines.append(ts + "  [%-10s] %s" % (e["source"], e["description"] or e["type"]))
         return "\n".join(lines)
 
     def csv_out(self):
+        self.sort()
         lines = ["timestamp,source,type,description"]
-        for e in sorted(self.events, key=lambda x: x["timestamp"] or datetime.datetime.min):
+        for e in self.events:
             ts = e["timestamp"].isoformat() if e["timestamp"] else ""
             desc = (e["description"] or "").replace(",", ";")
-            lines.append("%s,%s,%s,%s" % (ts, e["source"], e["type"], desc))
+            lines.append(",".join([ts, e["source"], e["type"], desc]))
         return "\n".join(lines)
 
+    def jsonl_out(self):
+        self.sort()
+        out = []
+        for e in self.events:
+            out.append({
+                "timestamp": e["timestamp"].isoformat() if e["timestamp"] else None,
+                "source": e["source"],
+                "type": e["type"],
+                "description": e["description"],
+                "data": e["data"],
+            })
+        return "\n".join(json.dumps(o) for o in out)
+
     def correlated_sessions(self, gap=datetime.timedelta(minutes=10)):
-        """Group events into sessions where gaps exceed `gap`."""
         self.sort()
         sessions = []
         current = []
@@ -132,54 +135,83 @@ class Timeline:
         return sessions
 
 
-SAMPLE = [
-    {"timestamp": "2024-01-15T08:00:00", "source": "auth", "type": "login", "description": "User logon"},
-    {"timestamp": "2024-01-15T08:02:30", "source": "auth", "type": "login", "description": "Failed password"},
-    {"timestamp": "2024-01-15T08:10:00", "source": "network", "type": "conn", "description": "Outbound connect"},
-    {"timestamp": "2024-01-15T08:11:00", "source": "file", "type": "create", "description": "New binary written"},
-    {"timestamp": "2024-01-15T09:00:00", "source": "network", "type": "conn", "description": "DNS query"},
-    {"timestamp": "2024-01-15T23:59:00", "source": "auth", "type": "login", "description": "Late night logon"},
-]
-
-
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="D8 - Timeline Generator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--input", "-i", nargs="+", help="JSON/JSONL input event files")
+    parser.add_argument("--output", "-o", help="Output path (CSV or JSONL based on extension)")
+    parser.add_argument("--format", "-f", choices=["txt", "csv", "jsonl"], default="txt",
+                        help="Console output format")
+    parser.add_argument("--demo", action="store_true", help="Run on built-in fixtures")
+    args = parser.parse_args()
+
+    if args.demo:
+        base = os.path.dirname(os.path.abspath(sys.argv[0]))
+        if os.path.basename(base) == "firmware":
+            base = os.path.dirname(base)
+        fixture_dir = os.path.join(base, "tests", "fixtures")
+        tl = Timeline()
+        for fname in sorted(os.listdir(fixture_dir)):
+            if fname.endswith(".json"):
+                tl.load_json(os.path.join(fixture_dir, fname))
+        out_dir = os.path.join(base, "reports")
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, "d8_timeline.csv")
+        with open(out_path, "w") as f:
+            f.write(tl.csv_out() + "\n")
+        tl.sort()
+        print("=== D8 - Timeline Generator (Demo) ===")
+        print("Total events: %d" % len(tl.events))
+        print("Sources: %s" % ", ".join(sorted(tl.summarize().keys())))
+        print("Sessions: %d" % len(tl.correlated_sessions()))
+        print("\n-- Timeline --")
+        print(tl.timeline_txt())
+        print("\nCSV written to %s" % out_path)
+        sys.exit(0)
+
     tl = Timeline()
-    if len(sys.argv) > 1:
-        for p in sys.argv[1:]:
+    if args.input:
+        for p in args.input:
             if os.path.isfile(p):
                 tl.load_json(p)
             else:
                 print("Skip missing file: %s" % p)
     else:
-        print("No JSON files given; using built-in sample events.\n")
-        for rec in SAMPLE:
-            tl.add_event(rec["timestamp"], rec["source"], rec["type"], rec["description"])
+        parser.print_help()
+        sys.exit(1)
 
     tl.sort()
 
-    print("=== D8 - Timeline Generator ===")
-    print("Total events: %d" % len(tl.events))
+    if args.output:
+        out_dir = os.path.dirname(args.output) or "."
+        os.makedirs(out_dir, exist_ok=True)
+        if args.output.endswith(".csv"):
+            with open(args.output, "w") as f:
+                f.write(tl.csv_out() + "\n")
+        elif args.output.endswith(".jsonl"):
+            with open(args.output, "w") as f:
+                f.write(tl.jsonl_out() + "\n")
+        print("Output written to %s" % args.output)
 
-    print("\n-- Source summary --")
-    for s, types in tl.summarize().items():
-        print("  %-10s %s" % (s, ", ".join(types)))
-
-    print("\n-- Timeline visualization --")
-    print(tl.timeline_txt())
-
-    print("\n-- Event density --")
-    print(tl.render_bars())
-
-    print("\n-- Correlated sessions --")
-    sessions = tl.correlated_sessions()
-    print("  Sessions found: %d" % len(sessions))
-    for i, sess in enumerate(sessions, 1):
-        start = sess[0]["timestamp"].isoformat() if sess[0]["timestamp"] else "?"
-        end = sess[-1]["timestamp"].isoformat() if sess[-1]["timestamp"] else "?"
-        print("  Session %d: %s -> %s (%d events)" % (i, start, end, len(sess)))
-
-    return 0
+    if args.format == "csv":
+        print(tl.csv_out())
+    elif args.format == "jsonl":
+        print(tl.jsonl_out())
+    else:
+        print("=== D8 - Timeline Generator ===")
+        print("Total events: %d" % len(tl.events))
+        print("\n-- Timeline --")
+        print(tl.timeline_txt())
+        print("\n-- Correlated sessions --")
+        for i, sess in enumerate(tl.correlated_sessions(), 1):
+            start = sess[0]["timestamp"].isoformat() if sess[0]["timestamp"] else "?"
+            end = sess[-1]["timestamp"].isoformat() if sess[-1]["timestamp"] else "?"
+            print("  Session %d: %s -> %s (%d events)" % (i, start, end, len(sess)))
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

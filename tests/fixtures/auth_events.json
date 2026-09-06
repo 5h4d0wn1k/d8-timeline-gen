@@ -1,0 +1,6 @@
+[
+  {"timestamp": "2024-01-15T08:00:00Z", "source": "auth", "type": "login_success", "description": "User logon from 198.51.100.22", "user": "alice"},
+  {"timestamp": "2024-01-15T08:02:30Z", "source": "auth", "type": "login_failure", "description": "Failed password for root", "user": "root"},
+  {"timestamp": "2024-01-15T08:10:00Z", "source": "auth", "type": "login_failure", "description": "Failed password for admin", "user": "admin"},
+  {"timestamp": "2024-01-15T09:00:00Z", "source": "auth", "type": "login_success", "description": "User logon from 198.51.100.22", "user": "alice"}
+]
