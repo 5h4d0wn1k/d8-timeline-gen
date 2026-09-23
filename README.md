@@ -6,60 +6,95 @@
 
 # D8 — Timeline Generator
 
-Multi-source forensic timeline correlation with wall-clock normalization, CSV/JSONL output, and session grouping.
+**DFIR super-timelining utility** by **5h4d0wn1k** for **forensic timeline
+correlation**: merges auth, network and file-artifact events into one
+wall-clock-normalized (UTC) timeline, then renders text, CSV or JSONL output
+with source/type filtering and session grouping. Python-only, offline fixtures
+for deterministic analysis.
 
-## IMPORTANT: Read before use.
+## Why super-timelining
 
-This tool is for **authorized educational and blue-team analysis only**. Use only on artifacts you own or are permitted to analyze. All fixtures are synthetic with fictional data and RFC 5737 documentation IPs / example.com domains.
+Compromise analysis lives or dies by ordering: scattered logs from SSH auth,
+network flows and filesystem artifacts only become evidence when correlated
+against a single clock. This utility ingests JSON/JSONL event streams from any
+source, normalizes ISO-8601 (with `Z`/offsets) and naive timestamps into aware
+UTC, and yields one ascending timeline — exactly the shape investigators need
+to spot the "first-in" host, lateral movement and data staging. Sessions
+correlate events across time gaps, and `by_time_range` supports focused
+querying. All fixtures are synthetic with RFC 5737 documentation IPs and
+`example.com` domains; use it only on artifacts you own or are authorized to
+analyze — see [ETHICS.md](ETHICS.md) and [SCOPE.md](SCOPE.md).
 
 ## Features
 
-- **Multi-source ingestion**: merge events from auth, network, file, and arbitrary JSON/JSONL artifacts
-- **Wall-clock normalization**: all timestamps converted to aware UTC for reliable cross-source ordering
-- **Flexible timestamp parsing**: ISO-8601 (incl. `Z` and offsets), `%Y-%m-%d %H:%M:%S`
-- **Timeline output**: text visualization, CSV, JSONL
-- **Session correlation**: group events into sessions based on time gaps
-- **Source/type filtering** and **time-range queries**
+- **Multi-source ingestion** — merge events from auth, network, file and
+  arbitrary JSON/JSONL artifacts (`parse_ts`, `add_event`).
+- **Wall-clock normalization** — every timestamp converted to aware UTC for
+  reliable cross-source ordering.
+- **Flexible timestamp parsing** — ISO-8601 with `Z`/offsets plus
+  `%Y-%m-%d %H:%M:%S`.
+- **Timeline output** — text visualization, CSV and JSONL
+  (`timeline_txt`, `csv_lines`, `jsonl_lines`).
+- **Source/type filtering** and time-range querying (`filter_source`,
+  `by_time_range`).
+- **Session correlation** — group events into sessions based on configurable
+  time gaps (`correlated_sessions`).
+- **Offline demo** — built-in `auth`, `net` and `file` fixtures in
+  `tests/fixtures/` drive a deterministic demo that writes
+  `reports/d8_timeline.csv`.
 
-## Quick Start
+## Quickstart
 
 ```bash
-# Run demo on built-in multi-source fixtures
+# Run the demo on built-in multi-source fixtures (writes reports/, exit 0)
 python3 cli.py --demo
 
 # Merge multiple event files
 python3 cli.py --input auth.json net.json file.json
 
-# Export merged timeline to CSV
+# Export a merged timeline to CSV
 python3 cli.py --input auth.json net.json --output reports/timeline.csv
-```
 
-## Ingestion
-
-- `--input` accepts one or more JSON/JSONL files
-- Each record needs `timestamp`; optional `source`, `type`, `description`, `data`
-- Demo merges `auth_events`, `net_events`, `file_events` fixtures
-
-## Testing
-
-```bash
+# Run the test suite (17 deterministic offline tests)
 python3 -m unittest discover -s tests
 ```
 
-## Live Lab Test Plan
+## CLI
 
-1. Run `python3 cli.py --demo` — should exit 0, print merged timeline, write `reports/d8_timeline.csv`
-2. Run `python3 -m unittest discover -s tests` — all tests pass
-3. Verify the timeline is sorted in ascending UTC order across all three sources
+```
+python3 cli.py [-h] [--input FILE [FILE ...]] [--output PATH]
+               [--format {txt,csv,jsonl}] [--demo]
+```
 
-## Metrics
+- `--input` (or `-i`) — one or more JSON/JSONL event files. Each record needs
+  a `timestamp`; optional `source`, `type`, `description`, `data`.
+- `--output` (or `-o`) — output path; format follows the file extension.
+- `--format` (or `-f`) — `txt` (default), `csv` or `jsonl`.
+- `--demo` — run on the bundled fixtures.
 
-- Output formats: 3 (text, CSV, JSONL)
-- Sources handled: 3 fixture sources merged + arbitrary
-- Timestamp normalization: ISO-Z, ISO-offset, naive assumed-UTC
-- Test count: 17
-- Demo exit code: 0
+## Project structure
+
+```
+cli.py                  # thin entry point into the engine
+firmware/timeline.py    # normalization, correlation, sessions, output, CLI
+tests/fixtures/         # synthetic auth/net/file event fixtures
+tests/                  # unittest coverage (17 tests)
+```
+
+## Documentation
+
+- [ETHICS.md](ETHICS.md) — acceptable and prohibited use.
+- [SCOPE.md](SCOPE.md) — authorized target scope.
+- [SECURITY.md](SECURITY.md) — responsible disclosure.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guide.
+
+## Contributing
+
+New event source adapters, output formats and session heuristics are welcome.
+Open an issue or PR against the default branch; keep contributions scoped to
+blue-team, educational tooling.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Educational, blue-team software for analyzing
+artifacts you own or are explicitly permitted to examine.
